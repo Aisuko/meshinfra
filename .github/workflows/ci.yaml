@@ -1,0 +1,125 @@
+name: meshinfra
+on:
+  push:
+    branches:
+      - '*'
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  lint:
+    name: Check & Review code
+    runs-on: ubuntu-latest
+    env:
+      GO111MODULE: on
+      GOPROXY: direct
+      GOSUMDB: off
+    steps:
+    - name: Check out code
+      uses: actions/checkout@master
+      with:
+        fetch-depth: 1
+    - name: Setup Go
+      uses: actions/setup-go@v1
+      with:
+        go-version: ${{ secrets.GO_VERSION }}
+    - run: go get -u golang.org/x/lint/golint; go list ./... | grep -v /vendor/ | xargs -L1 /home/runner/go/bin/golint -set_exit_status
+  
+  error_check:
+    name: Error check
+    runs-on: ubuntu-latest
+    env:
+      GO111MODULE: on
+      GOPROXY: direct
+      GOSUMDB: off
+    steps:
+    - name: Check out code
+      uses: actions/checkout@master
+      with:
+        fetch-depth: 1
+    - name: Setup Go
+      uses: actions/setup-go@v1
+      with:
+        go-version: ${{ secrets.GO_VERSION }}
+    - run: go get -u github.com/kisielk/errcheck; /home/runner/go/bin/errcheck ./...
+  
+  static_check:
+    name: Static check
+    runs-on: ubuntu-latest
+    env:
+      GO111MODULE: on
+      GOPROXY: direct
+      GOSUMDB: off
+    steps:
+    - name: Check out code
+      uses: actions/checkout@master
+      with:
+        fetch-depth: 1
+    - name: Setup Go
+      uses: actions/setup-go@v1
+      with:
+        go-version: ${{ secrets.GO_VERSION }}
+    - run: go get -u honnef.co/go/tools/cmd/staticcheck; /home/runner/go/bin/staticcheck -checks all,-ST1000 ./... # https://staticcheck.io/docs/checks
+
+  vet:
+    name: Vet
+    runs-on: ubuntu-latest
+    env:
+      GO111MODULE: on
+      GOPROXY: direct
+      GOSUMDB: off
+    steps:
+    - name: Check out code
+      uses: actions/checkout@master
+      with:
+        fetch-depth: 1
+    - name: Setup Go
+      uses: actions/setup-go@v1
+
+      with:
+        go-version: ${{ secrets.GO_VERSION }}
+    - run: go vet ./...
+  
+  sec_check:
+    name: Security check
+    runs-on: ubuntu-latest
+    env:
+      GO111MODULE: on
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 1
+    - name: Run Gosec Security Scanner
+      uses: securego/gosec@master
+      with:
+        args: ./...
+  
+  test:
+    needs: [lint, error_check, static_check, vet, sec_check]
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check out code
+      uses: actions/checkout@master
+      with:
+        fetch-depth: 1
+    - name: Setup Go
+      uses: actions/setup-go@v1
+      with:
+        go-version: ${{ secrets.GO_VERSION }}
+    - name: Create cluster using KinD
+      uses: engineerd/setup-kind@v0.3.0
+      with:
+        version: "v0.7.0"
+    - run: |
+        export CURRENTCONTEXT="$(kubectl config current-context)"
+        echo "current-context:" ${CURRENTCONTEXT}   
+        export KUBECONFIG="${HOME}/.kube/config"
+        echo "environment-kubeconfig:" ${KUBECONFIG}
+        GOPROXY=direct GOSUMDB=off GO111MODULE=on go test ./...
+
+  
