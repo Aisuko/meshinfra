@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
+	common "github.com/Aisuko/meshinfra/pkg/common"
 	util "github.com/Aisuko/meshinfra/pkg/ioutil"
 
-	transform "github.com/Aisuko/meshinfra/transform"
 	"github.com/gofrs/flock"
 	"github.com/pkg/errors"
 	"gopkg.in/yaml.v2"
@@ -29,14 +29,19 @@ import (
 	"helm.sh/helm/v3/pkg/strvals"
 )
 
-// TranformLinkerd is used to handler the parameters and transform Linekrd chart to Kubernetes mainifest
-type TranformLinkerd struct {
-	transformInfo *transform.Transform
+type tranformLinkerd struct {
+	chartName        string
+	releaseName      string
+	namespace        string
+	repoName         string
+	chartRepoAddress string
+	args             map[string]string
+	isHa             bool
 }
 
 var settings = cli.New()
 
-func (t *TranformLinkerd) addNewChartRepo() (err error) {
+func (t *tranformLinkerd) addNewChartRepo() (err error) {
 	repoFile := settings.RepositoryConfig
 
 	//Ensure the file directory exists as it is required for file locking
@@ -61,7 +66,6 @@ func (t *TranformLinkerd) addNewChartRepo() (err error) {
 	// Need to check filepath
 	b, err := ioutil.ReadFile(filepath.Clean(repoFile))
 	if err != nil && !os.IsNotExist(err) {
-		t.transformInfo.Debug("Read %s repo file error", t.transformInfo.RepoName)
 		return err
 	}
 
@@ -70,13 +74,13 @@ func (t *TranformLinkerd) addNewChartRepo() (err error) {
 		return err
 	}
 
-	if f.Has(t.transformInfo.RepoName) {
-		t.transformInfo.Debug("Repository name %s already exists", t.transformInfo.RepoName)
+	if f.Has(t.repoName) {
+		common.Debug("Repository name %s already exists", t.repoName)
 	}
 
 	c := repo.Entry{
-		Name: t.transformInfo.RepoName,
-		URL:  t.transformInfo.ChartRepoAddress,
+		Name: t.repoName,
+		URL:  t.chartRepoAddress,
 	}
 
 	r, err := repo.NewChartRepository(&c, getter.All(settings))
@@ -85,21 +89,21 @@ func (t *TranformLinkerd) addNewChartRepo() (err error) {
 	}
 
 	if _, err := r.DownloadIndexFile(); err != nil {
-		err := errors.Wrapf(err, "looks like %q is not a valid chart repository or cannot be reached", t.transformInfo.ChartRepoAddress)
+		err := errors.Wrapf(err, "looks like %q is not a valid chart repository or cannot be reached", t.chartRepoAddress)
 		return err
 	}
 
 	f.Update(&c)
 
 	if err := f.WriteFile(repoFile, 0644); err != nil {
-		t.transformInfo.Debug("Add the %s chart repo failed", t.transformInfo.RepoName)
+		common.Debug("Add the %s chart repo failed", t.repoName)
 		return err
 	}
 
 	return nil
 }
 
-func (t *TranformLinkerd) updateRepo() {
+func (t *tranformLinkerd) updateRepo() {
 	repoFile := settings.RepositoryConfig
 	f, err := repo.LoadFile(repoFile)
 	if os.IsNotExist(errors.Cause(err)) || len(f.Repositories) == 0 {
@@ -122,17 +126,17 @@ func (t *TranformLinkerd) updateRepo() {
 			defer wg.Done()
 			if _, err := re.DownloadIndexFile(); err != nil {
 				log.Fatal(err)
-				t.transformInfo.Debug("Update %s repo index failed", t.transformInfo.RepoName)
+				common.Debug("Update %s repo index failed", t.repoName)
 			}
 		}(re)
 	}
 	wg.Wait()
-	t.transformInfo.Debug("Update %s repo index succeed", t.transformInfo.RepoName)
+	common.Debug("Update %s repo index succeed", t.repoName)
 }
 
-func (t *TranformLinkerd) renderChart() (*release.Release, error) {
+func (t *tranformLinkerd) renderChart() (*release.Release, error) {
 	actionConfig := new(action.Configuration)
-	if err := actionConfig.Init(settings.RESTClientGetter(), settings.Namespace(), os.Getenv("HELM_DRIVER"), t.transformInfo.Debug); err != nil {
+	if err := actionConfig.Init(settings.RESTClientGetter(), settings.Namespace(), os.Getenv("HELM_DRIVER"), common.Debug); err != nil {
 		return nil, err
 	}
 
@@ -142,13 +146,13 @@ func (t *TranformLinkerd) renderChart() (*release.Release, error) {
 		client.Version = ">0.0.0-0"
 	}
 
-	client.ReleaseName = t.transformInfo.ReleaseName
+	client.ReleaseName = t.releaseName
 
-	cp, err := client.ChartPathOptions.LocateChart(fmt.Sprintf("%s/%s", t.transformInfo.RepoName, t.transformInfo.ChartName), settings)
+	cp, err := client.ChartPathOptions.LocateChart(fmt.Sprintf("%s/%s", t.repoName, t.chartName), settings)
 	if err != nil {
 		return nil, err
 	}
-	t.transformInfo.Debug("CHART PATH: %s\n", cp)
+	common.Debug("CHART PATH: %s\n", cp)
 
 	p := getter.All(settings)
 	valueOpts := &values.Options{}
@@ -158,11 +162,11 @@ func (t *TranformLinkerd) renderChart() (*release.Release, error) {
 	}
 
 	//Add args
-	if err = strvals.ParseInto(t.transformInfo.Args["--set"], vals); err != nil {
+	if err = strvals.ParseInto(t.args["--set"], vals); err != nil {
 		return nil, (errors.Wrap(err, "failed parsing --set data"))
 	}
 
-	if err = strvals.ParseInto(t.transformInfo.Args["--set-file"], vals); err != nil {
+	if err = strvals.ParseInto(t.args["--set-file"], vals); err != nil {
 		return nil, (errors.Wrap(err, "failed parsing --set-file data"))
 	}
 
@@ -173,14 +177,14 @@ func (t *TranformLinkerd) renderChart() (*release.Release, error) {
 		return nil, err
 	}
 
-	valsMerged, err := requestHa(t.transformInfo.IsHa, chartRequested, vals)
+	valsMerged, err := requestHa(t.isHa, chartRequested, vals)
 
 	if err != nil {
-		t.transformInfo.Debug("Can not merge the value-ha.yaml %s\n", err)
+		common.Debug("Can not merge the value-ha.yaml %s\n", err)
 		return nil, err
 	}
 
-	validInstallableChart, err := t.transformInfo.IsChartInstallable(chartRequested)
+	validInstallableChart, err := common.IsChartInstallable(chartRequested)
 	if !validInstallableChart {
 		return nil, err
 	}
@@ -221,8 +225,8 @@ func (t *TranformLinkerd) renderChart() (*release.Release, error) {
 	return release, nil
 }
 
-func (t *TranformLinkerd) transformLinkerd() (string, error) {
-	_ = os.Setenv("HELM_NAMESPACE", t.transformInfo.Namespace)
+func (t *tranformLinkerd) transformLinkerd() (string, error) {
+	_ = os.Setenv("HELM_NAMESPACE", t.namespace)
 
 	err := t.addNewChartRepo()
 	if err != nil {
@@ -242,16 +246,14 @@ func (t *TranformLinkerd) transformLinkerd() (string, error) {
 
 // ExeTransformLinkerd is used to execute the transforming
 func ExeTransformLinkerd(chartName, releaseName, namespace, repoName, chartRepoAddress string, isHa bool, args map[string]string) (string, error) {
-	t := &TranformLinkerd{
-		&transform.Transform{
-			ChartName:        chartName,
-			ReleaseName:      releaseName,
-			Namespace:        namespace,
-			RepoName:         repoName,
-			ChartRepoAddress: chartRepoAddress,
-			IsHa:             isHa,
-			Args:             args,
-		},
+	t := &tranformLinkerd{
+		chartName:        chartName,
+		releaseName:      releaseName,
+		namespace:        namespace,
+		repoName:         repoName,
+		chartRepoAddress: chartRepoAddress,
+		isHa:             isHa,
+		args:             args,
 	}
 	return t.transformLinkerd()
 }
