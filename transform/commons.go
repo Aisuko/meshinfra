@@ -133,7 +133,7 @@ func (t *Transform) UpdateRepo(settings *cli.EnvSettings) {
 	t.Debug("Update %s repo index succeed", t.RepoName)
 }
 
-// RenderChart is used to  tranform the chart to Kubernetes manifest
+// RenderChart is usesd to  transform the chart to Kubernetes manifest
 func (t *Transform) RenderChart(settings *cli.EnvSettings) (*release.Release, error) {
 	actionConfig := new(action.Configuration)
 	if err := actionConfig.Init(settings.RESTClientGetter(), settings.Namespace(), os.Getenv("HELM_DRIVER"), t.Debug); err != nil {
