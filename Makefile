@@ -97,4 +97,9 @@ info:
 test:
 	@echo
 	@echo "==> Running unit tests <=="
+
 	GO111MODULE=on go test $(GOFLAGS) -run $(TESTS) $(PKG) $(TESTFLAGS)
+
+.PHONY: generated-code
+generated-code:
+	CGO_ENABLED=0 go generate ./...

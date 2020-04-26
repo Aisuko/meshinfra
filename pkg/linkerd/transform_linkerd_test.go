@@ -48,12 +48,12 @@ func TestTransformLinkerd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// fmt.Println(strManifest)
+	fmt.Println(strManifest)
 	bol := strings.ContainsAny("values-ha.yaml", strManifest)
 	if !bol {
-		t.Log("Can not find the values-ha.yaml string")
+		t.Fatal("Can not find the values-ha.yaml string")
 	} else {
-		t.Log("Linkerd was deployed with High-Availability scenario succeed")
+		fmt.Println("Linkerd was deployed with High-Availability scenario succeed")
 	}
 
 }

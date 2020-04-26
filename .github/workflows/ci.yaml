@@ -138,15 +138,15 @@ jobs:
       uses: actions/setup-go@v1
       with:
         go-version: ${{ secrets.GO_VERSION }}
-    - name: Create cluster using KinD
-      uses: engineerd/setup-kind@v0.3.0
-      with:
-        version: "v0.7.0"
+    # - name: Create cluster using KinD
+    #   uses: engineerd/setup-kind@v0.3.0
+    #   with:
+    #     version: "v0.7.0"
     - run: |
-        export CURRENTCONTEXT="$(kubectl config current-context)"
-        echo "current-context:" ${CURRENTCONTEXT}   
-        export KUBECONFIG="${HOME}/.kube/config"
-        echo "environment-kubeconfig:" ${KUBECONFIG}
+        # export CURRENTCONTEXT="$(kubectl config current-context)"
+        # echo "current-context:" ${CURRENTCONTEXT}   
+        # export KUBECONFIG="${HOME}/.kube/config"
+        # echo "environment-kubeconfig:" ${KUBECONFIG}
         GOPROXY=direct GOSUMDB=off GO111MODULE=on go test ./...
 
   

@@ -1,4 +1,4 @@
-package transform
+package consul
 
 import (
 	"context"
@@ -11,12 +11,12 @@ import (
 	"sync"
 	"time"
 
+	common "github.com/Aisuko/meshinfra/pkg/common"
 	util "github.com/Aisuko/meshinfra/pkg/ioutil"
 	"github.com/gofrs/flock"
 	"github.com/pkg/errors"
 	"gopkg.in/yaml.v2"
 	"helm.sh/helm/v3/pkg/action"
-	"helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/chart/loader"
 	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/cli/values"
@@ -26,19 +26,50 @@ import (
 	"helm.sh/helm/v3/pkg/repo"
 )
 
-// Transform is used to provider the basement parameters to the transform process
-type Transform struct {
-	ChartName        string
-	ReleaseName      string
-	Namespace        string
-	RepoName         string
-	ChartRepoAddress string
-	Args             map[string]string
-	IsHa             bool
+var settings = cli.New()
+
+type consul struct {
+	chartName        string
+	releaseName      string
+	namespace        string
+	repoName         string
+	chartRepoAddress string
+	args             map[string]string
+	isHa             bool
 }
 
-// AddNewChartRepo is used to add repo for meshinfra
-func (t *Transform) AddNewChartRepo(settings *cli.EnvSettings) (err error) {
+// ExeTransformConsul is used to execute transform consul chart to kubernets manifest
+func ExeTransformConsul(chartName, releaseName, namespace, repoName, chartRepoAddress string, isHa bool, args map[string]string) (string, error) {
+	consul := newConsul(chartName, releaseName, namespace, repoName, chartRepoAddress, isHa, args)
+
+	err := consul.AddRepo()
+	if err != nil {
+		return "", err
+	}
+	consul.UpdateRepo()
+
+	release, err := consul.TranformChart()
+	if err != nil {
+		return "", err
+	}
+
+	return release.Manifest, nil
+}
+
+func newConsul(chartName, releaseName, namespace, repoName, chartRepoAddress string, isHa bool, args map[string]string) Consul {
+	return &consul{
+		chartName:        chartName,
+		releaseName:      releaseName,
+		namespace:        namespace,
+		repoName:         repoName,
+		chartRepoAddress: chartRepoAddress,
+		args:             args,
+		isHa:             isHa,
+	}
+}
+
+// Addrepo is used to add the chart repo address to the repo config
+func (c *consul) AddRepo() (err error) {
 	repoFile := settings.RepositoryConfig
 
 	//Ensure the file directory exists as it is required for file locking
@@ -63,7 +94,6 @@ func (t *Transform) AddNewChartRepo(settings *cli.EnvSettings) (err error) {
 	// Need to check filepath
 	b, err := ioutil.ReadFile(filepath.Clean(repoFile))
 	if err != nil && !os.IsNotExist(err) {
-		t.Debug("Read %s repo file error", t.RepoName)
 		return err
 	}
 
@@ -72,37 +102,38 @@ func (t *Transform) AddNewChartRepo(settings *cli.EnvSettings) (err error) {
 		return err
 	}
 
-	if f.Has(t.RepoName) {
-		t.Debug("Repository name %s already exists", t.RepoName)
+	if f.Has(c.repoName) {
+		common.Debug("Repository name %s already exists", c.repoName)
 	}
 
-	c := repo.Entry{
-		Name: t.RepoName,
-		URL:  t.ChartRepoAddress,
+	entry := repo.Entry{
+		Name: c.repoName,
+		URL:  c.chartRepoAddress,
 	}
 
-	r, err := repo.NewChartRepository(&c, getter.All(settings))
+	r, err := repo.NewChartRepository(&entry, getter.All(settings))
 	if err != nil {
 		return err
 	}
 
 	if _, err := r.DownloadIndexFile(); err != nil {
-		err := errors.Wrapf(err, "looks like %q is not a valid chart repository or cannot be reached", t.ChartRepoAddress)
+		err := errors.Wrapf(err, "looks like %q is not a valid chart repository or cannot be reached", c.chartRepoAddress)
 		return err
 	}
 
-	f.Update(&c)
+	f.Update(&entry)
 
 	if err := f.WriteFile(repoFile, 0644); err != nil {
-		t.Debug("Add the %s chart repo failed", t.RepoName)
+		common.Debug("Add the %s chart repo failed", c.repoName)
 		return err
 	}
 
 	return nil
+
 }
 
-// UpdateRepo is used to update the chart repo index.yaml
-func (t *Transform) UpdateRepo(settings *cli.EnvSettings) {
+// UpdateRepo is used to update the chart repo
+func (c *consul) UpdateRepo() {
 	repoFile := settings.RepositoryConfig
 	f, err := repo.LoadFile(repoFile)
 	if os.IsNotExist(errors.Cause(err)) || len(f.Repositories) == 0 {
@@ -125,18 +156,18 @@ func (t *Transform) UpdateRepo(settings *cli.EnvSettings) {
 			defer wg.Done()
 			if _, err := re.DownloadIndexFile(); err != nil {
 				log.Fatal(err)
-				t.Debug("Update %s repo index failed", t.RepoName)
+				common.Debug("Update %s repo index failed", c.repoName)
 			}
 		}(re)
 	}
 	wg.Wait()
-	t.Debug("Update %s repo index succeed", t.RepoName)
+	common.Debug("Update %s repo index succeed", c.repoName)
 }
 
-// RenderChart is usesd to  transform the chart to Kubernetes manifest
-func (t *Transform) RenderChart(settings *cli.EnvSettings) (*release.Release, error) {
+// TranformChart is used to tranform the chart to kubernetes manifest
+func (c *consul) TranformChart() (*release.Release, error) {
 	actionConfig := new(action.Configuration)
-	if err := actionConfig.Init(settings.RESTClientGetter(), settings.Namespace(), os.Getenv("HELM_DRIVER"), t.Debug); err != nil {
+	if err := actionConfig.Init(settings.RESTClientGetter(), settings.Namespace(), os.Getenv("HELM_DRIVER"), common.Debug); err != nil {
 		return nil, err
 	}
 
@@ -146,13 +177,13 @@ func (t *Transform) RenderChart(settings *cli.EnvSettings) (*release.Release, er
 		client.Version = ">0.0.0-0"
 	}
 
-	client.ReleaseName = t.ReleaseName
+	client.ReleaseName = c.releaseName
 
-	cp, err := client.ChartPathOptions.LocateChart(fmt.Sprintf("%s/%s", t.RepoName, t.ChartName), settings)
+	cp, err := client.ChartPathOptions.LocateChart(fmt.Sprintf("%s/%s", c.repoName, c.chartName), settings)
 	if err != nil {
 		return nil, err
 	}
-	t.Debug("CHART PATH: %s\n", cp)
+	common.Debug("CHART PATH: %s\n", cp)
 
 	p := getter.All(settings)
 	valueOpts := &values.Options{}
@@ -161,11 +192,6 @@ func (t *Transform) RenderChart(settings *cli.EnvSettings) (*release.Release, er
 		return nil, err
 	}
 
-	//Add args
-	// if err = strvals.ParseInto(t.Args["--set"], vals); err != nil {
-	// 	return nil, (errors.Wrap(err, "failed parsing --set data"))
-	// }
-
 	// Check chart dependencies to make sure all are present in /charts
 	chartRequested, err := loader.Load(cp)
 
@@ -173,7 +199,7 @@ func (t *Transform) RenderChart(settings *cli.EnvSettings) (*release.Release, er
 		return nil, err
 	}
 
-	validInstallableChart, err := t.IsChartInstallable(chartRequested)
+	validInstallableChart, err := common.IsChartInstallable(chartRequested)
 	if !validInstallableChart {
 		return nil, err
 	}
@@ -212,19 +238,4 @@ func (t *Transform) RenderChart(settings *cli.EnvSettings) (*release.Release, er
 	}
 
 	return release, nil
-}
-
-// Debug is used default output the context to stout
-func (t *Transform) Debug(format string, args ...interface{}) {
-	format = fmt.Sprintf("[debug] %s\n", format)
-	fmt.Printf(format, args...)
-}
-
-// IsChartInstallable is used to check that the chart can be installed
-func (t *Transform) IsChartInstallable(ch *chart.Chart) (bool, error) {
-	switch ch.Metadata.Type {
-	case "", "application":
-		return true, nil
-	}
-	return false, errors.Errorf("%s charts are not installable", ch.Metadata.Type)
 }
