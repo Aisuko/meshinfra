@@ -26,6 +26,13 @@ jobs:
       uses: actions/setup-go@v1
       with:
         go-version: ${{ secrets.GO_VERSION }}
+    - name: Cache node modules
+      uses: actions/cache@v1
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
     - run: |
         go get -u github.com/client9/misspell/cmd/misspell
         /home/runner/go/bin/misspell transform pkg
@@ -45,10 +52,16 @@ jobs:
       uses: actions/setup-go@v1
       with:
         go-version: ${{ secrets.GO_VERSION }}
+    - name: Cache node modules
+      uses: actions/cache@v1
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
     - run: |
-        go get -u golang.org/x/lint/golint 
-        go list ./... | grep -v /vendor/ | xargs -L1 
-        /home/runner/go/bin/golint -set_exit_status
+        go get -u github.com/mgechev/revive
+        /home/runner/go/bin/revive -config config/revive-lint.toml -formatter friendly ./...
   
   error_check:
     name: Error check
@@ -66,6 +79,13 @@ jobs:
       uses: actions/setup-go@v1
       with:
         go-version: ${{ secrets.GO_VERSION }}
+    - name: Cache node modules
+      uses: actions/cache@v1
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
     - run: | 
         go get -u github.com/kisielk/errcheck
         /home/runner/go/bin/errcheck ./...
@@ -87,6 +107,13 @@ jobs:
       with:
         go-version: ${{ secrets.GO_VERSION }}
       # https://staticcheck.io/docs/checks
+    - name: Cache node modules
+      uses: actions/cache@v1
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
     - run: |
         go get -u honnef.co/go/tools/cmd/staticcheck
         /home/runner/go/bin/staticcheck -checks all,-ST1000 ./... 
@@ -105,9 +132,15 @@ jobs:
         fetch-depth: 1
     - name: Setup Go
       uses: actions/setup-go@v1
-
       with:
         go-version: ${{ secrets.GO_VERSION }}
+    - name: Cache node modules
+      uses: actions/cache@v1
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
     - run: go vet ./...
   
   sec_check:
@@ -138,6 +171,13 @@ jobs:
       uses: actions/setup-go@v1
       with:
         go-version: ${{ secrets.GO_VERSION }}
+    - name: Cache node modules
+      uses: actions/cache@v1
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
     # - name: Create cluster using KinD
     #   uses: engineerd/setup-kind@v0.3.0
     #   with:
