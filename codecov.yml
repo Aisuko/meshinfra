@@ -13,6 +13,6 @@ parsers:
       method: no
       macro: no
 comment:
-  layout: "reach,diff,flags,tree"
+  layout: "reach,diff,flags,files,tree"
   behavior: default
   require_changes: no
