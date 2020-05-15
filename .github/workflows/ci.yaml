@@ -10,6 +10,7 @@ on:
       - master
 
 jobs:
+
   misspell:
     name: Correct commonly misspelled English words
     runs-on: ubuntu-latest
@@ -36,6 +37,7 @@ jobs:
     - run: |
         go get -u github.com/client9/misspell/cmd/misspell
         /home/runner/go/bin/misspell transform pkg
+
   lint:
     name: Check & Review code
     runs-on: ubuntu-latest
@@ -158,6 +160,40 @@ jobs:
       with:
         args: ./...
   
+  codecov:
+    name: Codecov
+    runs-on: ubuntu-latest
+    env:
+       GO111MODULE: on
+       GOLANG: ${{ secrets.GO_VERSION }}
+    steps:
+    - name: Check out code
+      uses: actions/checkout@master
+      with:
+        fetch-depth: 1
+    - name: Setup Go
+      uses: actions/setup-go@v1
+      with:
+        go-version: ${{ secrets.GO_VERSION }}
+    - name: Cache node modules
+      uses: actions/cache@v1
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+    - name: Generate coverage report
+      run: |
+        go test -v -covermode=count -coverprofile=coverage.out ./...
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v1
+      with:
+        file: ./coverage.out
+        flags: unittests
+        name: codecov-umbrella
+        env_vars: GOLANG
+        fail_ci_if_error: true
+
   test:
     needs: [lint, error_check, static_check, vet, sec_check]
     name: Test
