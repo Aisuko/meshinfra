@@ -1,9 +1,7 @@
 # meshinfra
 
 
-[![Go Report Card](https://goreportcard.com/badge/github.com/Aisuko/meshinfra)](https://goreportcard.com/report/github.com/Aisuko/meshinfra)
-
-[![GitHub issues](https://img.shields.io/github/issues/Aisuko/meshinfra)](https://github.com/Aisuko/meshinfra/issues)
+[![Go Report Card](https://goreportcard.com/badge/github.com/Aisuko/meshinfra)](https://goreportcard.com/report/github.com/Aisuko/meshinfra)      [![GitHub issues](https://img.shields.io/github/issues/Aisuko/meshinfra)](https://github.com/Aisuko/meshinfra/issues)
 
 
 meshinfra is a toolset for Meshery server to transformation the chart to Kubernetes manifest
